@@ -17,6 +17,8 @@ void GretioAuthHandler::inputMessage(QJsonObject json)
             && json["authResult"].toBool() == true) {
         qDebug("Auth  was good");
         this->authComplete = true;
+
+        emit onAuthSuccess();
     }
 
 
@@ -32,6 +34,7 @@ void GretioAuthHandler::onConnected()
     };
 
     wsc->writeMessage(object);
+
 
 
 }

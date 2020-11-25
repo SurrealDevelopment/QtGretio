@@ -5,13 +5,12 @@
 
 
 // Platform-specific Defines:
-//
-// PTAPI: Define this yourself if you want a specific calling
-//        convention or other modifiers on the Pass-Thru API
-//        functions. Typically, on Windows, PTAPI will be defined
-//        as WINAPI, which enables the __stdcall convention.
-//
-#define PTAPI	 //WINAPI
+
+#ifdef _WIN32
+#define STDCALL __stdcall
+#else
+#define STDCALL
+#endif
 
 //
 // J2534-1 v04.04 ProtocolID Values
@@ -293,7 +292,7 @@
 //
 #define SW_CAN_HV_TX				0x00000400
 
-
+#pragma pack(push,1)
 //
 // J2534-1 v04.04 Structure Definitions
 //
@@ -328,21 +327,22 @@ typedef struct
     unsigned long	ExtraDataIndex;
     unsigned char	Data[4128];
 } PASSTHRU_MSG;
+#pragma pack(pop)
 
-SURREALJ2534WRAPPER_EXPORT long PTAPI   PassThruOpen(void* pName, unsigned long* pDeviceID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruClose(unsigned long DeviceID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID, unsigned long Flags, unsigned long BaudRate, unsigned long* pChannelID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruDisconnect(unsigned long ChannelID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long MsgID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruStartMsgFilter(unsigned long ChannelID, unsigned long FilterType, PASSTHRU_MSG* pMaskMsg, PASSTHRU_MSG* pPatternMsg, PASSTHRU_MSG* pFlowControlMsg, unsigned long* pFilterID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruStopMsgFilter(unsigned long ChannelID, unsigned long FilterID);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruReadVersion(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruGetLastError(char* pErrorDescription);
-SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput);
+SURREALJ2534WRAPPER_EXPORT long STDCALL PassThruOpen(void* pName, unsigned long* pDeviceID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruClose(unsigned long DeviceID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID, unsigned long Flags, unsigned long BaudRate, unsigned long* pChannelID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruDisconnect(unsigned long ChannelID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long MsgID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruStartMsgFilter(unsigned long ChannelID, unsigned long FilterType, PASSTHRU_MSG* pMaskMsg, PASSTHRU_MSG* pPatternMsg, PASSTHRU_MSG* pFlowControlMsg, unsigned long* pFilterID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruStopMsgFilter(unsigned long ChannelID, unsigned long FilterID);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruReadVersion(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruGetLastError(char* pErrorDescription);
+SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput);
 
 
 
@@ -355,19 +355,19 @@ SURREALJ2534WRAPPER_EXPORT long PTAPI	PassThruIoctl(unsigned long ChannelID, uns
 //     return FALSE;
 // pPassThruConnectFunc(DeviceID, CAN, CAN_29BIT_ID, 500000, &ChannelID);
 //
-typedef long	(PTAPI* PTOPEN)(void* pName, unsigned long* pDeviceID);
-typedef long	(PTAPI* PTCLOSE)(unsigned long DeviceID);
-typedef long	(PTAPI* PTCONNECT)(unsigned long DeviceID, unsigned long ProtocolID, unsigned long Flags, unsigned long BaudRate, unsigned long* pChannelID);
-typedef long	(PTAPI* PTDISCONNECT)(unsigned long ChannelID);
-typedef long	(PTAPI* PTREADMSGS)(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
-typedef long	(PTAPI* PTWRITEMSGS)(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
-typedef long	(PTAPI* PTSTARTPERIODICMSG)(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval);
-typedef long	(PTAPI* PTSTOPPERIODICMSG)(unsigned long ChannelID, unsigned long MsgID);
-typedef long	(PTAPI* PTSTARTMSGFILTER)(unsigned long ChannelID, unsigned long FilterType, PASSTHRU_MSG* pMaskMsg, PASSTHRU_MSG* pPatternMsg, PASSTHRU_MSG* pFlowControlMsg, unsigned long* pFilterID);
-typedef long	(PTAPI* PTSTOPMSGFILTER)(unsigned long ChannelID, unsigned long FilterID);
-typedef long	(PTAPI* PTSETPROGRAMMINGVOLTAGE)(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage);
-typedef long	(PTAPI* PTREADVERSION)(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion);
-typedef long	(PTAPI* PTGETLASTERROR)(char* pErrorDescription);
-typedef long	(PTAPI* PTIOCTL)(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput);
+typedef long	(STDCALL* PTOPEN)(void* pName, unsigned long* pDeviceID);
+typedef long	(STDCALL * PTCLOSE)(unsigned long DeviceID);
+typedef long	(STDCALL * PTCONNECT)(unsigned long DeviceID, unsigned long ProtocolID, unsigned long Flags, unsigned long BaudRate, unsigned long* pChannelID);
+typedef long	(STDCALL * PTDISCONNECT)(unsigned long ChannelID);
+typedef long	(STDCALL * PTREADMSGS)(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
+typedef long	(STDCALL * PTWRITEMSGS)(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout);
+typedef long	(STDCALL * PTSTARTPERIODICMSG)(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval);
+typedef long	(STDCALL * PTSTOPPERIODICMSG)(unsigned long ChannelID, unsigned long MsgID);
+typedef long	(STDCALL * PTSTARTMSGFILTER)(unsigned long ChannelID, unsigned long FilterType, PASSTHRU_MSG* pMaskMsg, PASSTHRU_MSG* pPatternMsg, PASSTHRU_MSG* pFlowControlMsg, unsigned long* pFilterID);
+typedef long	(STDCALL * PTSTOPMSGFILTER)(unsigned long ChannelID, unsigned long FilterID);
+typedef long	(STDCALL * PTSETPROGRAMMINGVOLTAGE)(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage);
+typedef long	(STDCALL * PTREADVERSION)(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion);
+typedef long	(STDCALL * PTGETLASTERROR)(char* pErrorDescription);
+typedef long	(STDCALL * PTIOCTL)(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput);
 
 #endif // J2534_H

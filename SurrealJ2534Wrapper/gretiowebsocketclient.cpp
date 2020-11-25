@@ -18,7 +18,7 @@ GretioWebsocketClient::GretioWebsocketClient(const QUrl &url, bool debug, QObjec
 
 bool GretioWebsocketClient::writeMessage(QJsonObject json)
 {
-    if (!m_webSocket.isValid()) return false;
+    //if (!m_webSocket.isValid()) return false;
 
     auto doc = QJsonDocument(json);
     QString msg;
@@ -42,6 +42,11 @@ void GretioWebsocketClient::connectNow()
     if (m_debug)
             qDebug() << "WebSocket server:" << m_url;
     m_webSocket.open(QUrl(this->m_url));
+}
+
+void GretioWebsocketClient::close()
+{
+    m_webSocket.close();
 }
 //! [constructor]
 
@@ -84,4 +89,6 @@ void GretioWebsocketClient::onMessageReceived(QString message)
     emit onJsonMessageReeived(jsonObj);
 
 }
+
+
 //! [onTextMessageReceived]

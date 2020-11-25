@@ -14,6 +14,7 @@ public:
     bool writeMessage(QJsonObject json);
 
     void connectNow();
+    void close();
 
 signals:
     void closed();

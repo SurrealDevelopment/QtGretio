@@ -2,63 +2,160 @@
 
 #include <QtDebug>
 #include "gretiowebcontext.h"
+#include <QJsonObject>
+#include <QJsonArray>
+#include "GretioWebConstants.h"
+#include <isolateqapp.h>
 
-bool ready = true;
 
 GretioWebContext * context = nullptr;
+IsolateQApp * app = nullptr;
 
-
-long PTAPI PassThruOpen(void* pName, unsigned long* pDeviceID) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
-
-
-    context = new GretioWebContext();
-
-    return 0L;
+// just guard the app
+void guardApp() {
+    if (app == nullptr) {
+        app = new IsolateQApp();
+    }
 }
 
-long PTAPI PassThruClose(unsigned long DeviceID) {
+long STDCALL PassThruOpen(void* pName, unsigned long* pDeviceID) {
+    // these linker comments are required because its stupid
+    if (context != nullptr) {
+        *pDeviceID = -1;
+        return ERR_DEVICE_IN_USE;
+    }
+    // ensure app exists
+    guardApp();
 
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+    context = new GretioWebContext(app);
+
+    // prevent caller from doing stuff too early
+    context->waitForOpenOrTimeout();
 
 
-    return 0L;
+    // we always just use 0L. Never anything else.
+    *pDeviceID = 1L;
+
+    return STATUS_NOERROR;
+}
+
+long STDCALL PassThruClose(unsigned long DeviceID) {
+
+    if (context == nullptr) {
+        return STATUS_NOERROR;
+    }
+
+    if (DeviceID != 1L) {
+        return ERR_INVALID_DEVICE_ID;
+    }
+
+    delete context;
+    context = nullptr;
+
+    // end app
+    delete app;
+    app = nullptr;
+
+    return STATUS_NOERROR;
 }
 
 
-long PTAPI PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID,
+long STDCALL PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID,
     unsigned long Flags, unsigned long BaudRate, unsigned long* pChannelID) {
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
 
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+    if (DeviceID != 1L) {
+        return ERR_INVALID_DEVICE_ID;
+    }
 
-    //logger.outfile << "PTCONNECT: " << DeviceID << " PRTOCOL: " << ProtocolID << std::endl;
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_CONNECT},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"protocolId", (int)ProtocolID},
+        {"flags", (int)Flags},
+        {"baudRate", (int)BaudRate},
+    };
+
+
+    auto result = context->sendReceiveCseq(msg, 5000L, &msg);
+
+    if (result) {
+        *pChannelID = (unsigned long)msg["pChannelId"].toInt();
+        return msg["passThruResult"].toInt();
+
+    } else {
+        return ERR_FAILED;
+    }
+}
+
+long STDCALL PassThruDisconnect(unsigned long ChannelID) {
+
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_CONNECT},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", (int)ChannelID},
+    };
+
+    auto result = context->sendReceiveCseq(msg, 5000L, &msg);
+
+    if (result) {
+        return msg["passThruResult"].toInt();
+
+    } else {
+        return ERR_FAILED;
+    }
+
 
 
     return 0L;
 }
 
-long PTAPI PassThruDisconnect(unsigned long ChannelID) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+long STDCALL PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout) {
 
-    //logger.outfile << "PTDISCONNECT: " << ChannelID << std::endl;
-
-
-    return 0L;
-}
-
-long PTAPI PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
     unsigned long preCallNumMsgs = *pNumMsgs;
 
-   // logger.outfile << "PTREADMSG: " << ChannelID << " NUM: " << *pNumMsgs << " TO: " << Timeout << std::endl;
+    // wrap messages into json
 
+    QJsonArray msgs;
+
+    for (int i = 0; i < preCallNumMsgs; i++) {
+        auto msg = pMsg[i];
+
+        auto header = QByteArray((char *)&(msg.Data[0]), 4);
+        auto data = QByteArray((char *)&(msg.Data[4]), msg.DataSize-4);
+        QJsonObject ptMsg {
+            {"header", QString(header.toHex())},
+            {"data", QString(data.toHex())}
+        };
+        msgs.push_back(ptMsg);
+
+    }
+
+    QJsonObject msg {
+        {"msgs", msgs},
+        {"timeout", (int)Timeout}
+    };
+
+    context->sendReceiveCseq(msg, Timeout * 2L, &msg);
 
 
     return 0L;
 }
 
-long PTAPI PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+long STDCALL PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout) {
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
     unsigned long preCallNumMsgs = *pNumMsgs;
     //auto res = LocalWriteMsgs(ChannelID, pMsg, pNumMsgs, Timeout);
 
@@ -72,8 +169,12 @@ long PTAPI PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsign
     return 0L;
 }
 
-long PTAPI PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+long STDCALL PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval) {
+
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
     //auto res = LocalStartPeriodicMsg(ChannelID, pMsg, pMsgID, TimeInterval);
 
     //logger.outfile << "PTWRTMSGPERIODIC: " << ChannelID << " PID: " << *pMsgID << " TI: " << TimeInterval << std::endl;
@@ -86,8 +187,12 @@ long PTAPI PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMsg,
     return 0L;
 }
 
-long PTAPI PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long MsgID) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+long STDCALL PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long MsgID) {
+
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
     //auto res = LocalStopPeriodicMsg(ChannelID, MsgID);
 
     //logger.outfile << "PTSTPPERIODIC: " << ChannelID << " PID: " << MsgID << std::endl;
@@ -97,9 +202,13 @@ long PTAPI PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long MsgID)
 
 }
 
-long PTAPI PassThruStartMsgFilter(unsigned long ChannelID, unsigned long FilterType, PASSTHRU_MSG* pMaskMsg,
+long STDCALL PassThruStartMsgFilter(unsigned long ChannelID, unsigned long FilterType, PASSTHRU_MSG* pMaskMsg,
     PASSTHRU_MSG* pPatternMsg, PASSTHRU_MSG* pFlowControlMsg, unsigned long* pFilterID) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
     //auto res = LocalStartMsgFilter(ChannelID, FilterType, pMaskMsg, pPatternMsg, pFlowControlMsg, pFilterID);
 
     //logger.outfile << "FILTER: " << ChannelID << " FID: " << *pFilterID << " TYPE: " << FilterType << std::endl;
@@ -108,8 +217,12 @@ long PTAPI PassThruStartMsgFilter(unsigned long ChannelID, unsigned long FilterT
     return 0L;
 }
 
-long PTAPI PassThruStopMsgFilter(unsigned long ChannelID, unsigned long FilterID) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+long STDCALL PassThruStopMsgFilter(unsigned long ChannelID, unsigned long FilterID) {
+
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
     //auto res = LocalStopMsgFilter(ChannelID, FilterID);
 
     //logger.outfile << "FILTER: " << ChannelID << " FID: " << FilterID << std::endl;
@@ -118,8 +231,13 @@ long PTAPI PassThruStopMsgFilter(unsigned long ChannelID, unsigned long FilterID
     return 0L;
 }
 
-long PTAPI PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage) {
-   if (!ready) return ERR_DEVICE_NOT_CONNECTED;
+long STDCALL PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage) {
+
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
+
+
     //auto res = LocalSetProgrammingVoltage(DeviceID, PinNumber, Voltage);
 
     //logger.outfile << "PROGVOLTAGE" << std::endl;
@@ -128,28 +246,38 @@ long PTAPI PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long P
     return 0L;
 }
 
-long PTAPI PassThruReadVersion(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
-    //auto res = LocalReadVersion(DeviceID, pFirmwareVersion, pDllVersion, pApiVersion);
+long STDCALL PassThruReadVersion(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion) {
 
-    //logger.outfile << "READVERSION" << std::endl;
+
+    auto ver = "TODO: ENTER VER";
+    strncpy(pFirmwareVersion, ver, 80);
+
+    auto dllver = "TODO: ENTER DLLVER";
+    strncpy(pDllVersion, ver, 80);
+
+    auto apiver = "TODO: ENTER APIVER";
+    strncpy(pApiVersion, ver, 80);
+
+    return 0L;
+}
+
+long STDCALL PassThruGetLastError(char* pErrorDescription) {
+
+    auto msg = "TODO: ENTER MSG";
+
+    strncpy(pErrorDescription, msg, 80);
 
 
     return 0L;
 }
 
-long PTAPI PassThruGetLastError(char* pErrorDescription) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
-    //auto res = LocalGetLastError(pErrorDescription);
+long STDCALL PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput) {
 
-    //logger.outfile << "GETLASTERROR" << std::endl;
+    if (context == nullptr) {
+        return ERR_DEVICE_NOT_CONNECTED;
+    };
 
 
-    return 0L;
-}
-
-long PTAPI PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput) {
-    if (!ready) return ERR_DEVICE_NOT_CONNECTED;
     //auto res = LocalIoctl(ChannelID, IoctlID, pInput, pOutput);
 
 
