@@ -4,6 +4,8 @@
 #endif // GRETIOWEBCONSTANTS_H
 
 
+#define WS_REQUEST_TIMEOUT 10000
+
 
 /**
  * This file contains agreed standards for ids, values, etc.
@@ -52,6 +54,9 @@
 #define MESSAGE_ID_PT_STOP_PERIODIC 9005
 #define MESSAGE_ID_PT_START_MESSAGE_FILTER 9006
 #define MESSAGE_ID_PT_STOP_MESSAGE_FILTER 9007
+#define MESSAGE_ID_PT_IOCTL 9008
+#define MESSAGE_ID_PT_SET_PROG_VOLTAGE 9009
+
 #define MESSAGE_ID_PT_WRITE_MSGS 9013
 
 

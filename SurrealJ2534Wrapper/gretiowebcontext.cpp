@@ -28,7 +28,7 @@ bool GretioWebContext::sendReceiveCseq(QJsonObject toSend, long timeout, QJsonOb
 {
     // increment cseq
     auto cseq = this->cseq++;
-    toSend["cseq"] = QJsonValue(this->cseq++);
+    toSend["cseq"] = QJsonValue(cseq);
 
     QTimer timer;
     QEventLoop loop;
@@ -38,7 +38,7 @@ bool GretioWebContext::sendReceiveCseq(QJsonObject toSend, long timeout, QJsonOb
     auto lambda =
 
 
-    connect(&wsah, &GretioAuthHandler::onMessageToNext, &loop, [&loop, &result, cseq, message]( QJsonObject json) {
+    connect(&wsah, &GretioAuthHandler::onMessageToNext, &loop, [&loop, &result, cseq, &message]( QJsonObject json) {
 
         if (json["cseq"].toInt(-1) == cseq) {
             // this is our message!

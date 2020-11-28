@@ -345,7 +345,6 @@ SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruGetLastError(char* pErrorDescrip
 SURREALJ2534WRAPPER_EXPORT long STDCALL	PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput);
 
 
-
 //
 // J2534-1 v04.04 Function Typedefs
 // These function typedefs allow simpler use of the J2534 API by

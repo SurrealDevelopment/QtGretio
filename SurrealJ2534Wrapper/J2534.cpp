@@ -10,6 +10,7 @@
 
 GretioWebContext * context = nullptr;
 IsolateQApp * app = nullptr;
+QString lastError = "No error yet";
 
 // just guard the app
 void guardApp() {
@@ -18,13 +19,14 @@ void guardApp() {
     }
 }
 
+// this will make our context and try connecting to a websocket HTTP Gretio server
 long STDCALL PassThruOpen(void* pName, unsigned long* pDeviceID) {
     // these linker comments are required because its stupid
     if (context != nullptr) {
         *pDeviceID = -1;
         return ERR_DEVICE_IN_USE;
     }
-    // ensure app exists
+    // ensure app exists=
     guardApp();
 
     context = new GretioWebContext(app);
@@ -79,7 +81,7 @@ long STDCALL PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID,
     };
 
 
-    auto result = context->sendReceiveCseq(msg, 5000L, &msg);
+    auto result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
 
     if (result) {
         *pChannelID = (unsigned long)msg["pChannelId"].toInt();
@@ -97,7 +99,7 @@ long STDCALL PassThruDisconnect(unsigned long ChannelID) {
     };
 
     QJsonObject msg {
-        {"id", MESSAGE_ID_PT_CONNECT},
+        {"id", MESSAGE_ID_PT_DISCONNECT},
         {"t", MESSAGE_TYPE_REQUEST},
         {"channelId", (int)ChannelID},
     };
@@ -116,39 +118,82 @@ long STDCALL PassThruDisconnect(unsigned long ChannelID) {
     return 0L;
 }
 
+QJsonObject PtMsgToJson(PASSTHRU_MSG &msg) {
+
+    auto header = QByteArray((char *)&(msg.Data[0]), 4);
+    auto data = QByteArray((char *)&(msg.Data[4]), msg.DataSize-4);
+
+    QJsonObject ptMsg {
+        {"header", QString(header.toHex())},
+        {"data", QString(data.toHex())},
+        {"protocolId", QString::number(msg.ProtocolID)},
+        {"timeStamp", QString::number(msg.Timestamp)},
+        {"rxFlag", QString::number(msg.RxStatus)},
+        {"txFlag", QString::number(msg.TxFlags)},
+        {"extraDataIndex", QString::number(msg.ExtraDataIndex)}
+
+    };
+
+    return ptMsg;
+}
+
+void CopyJsonMsg(QJsonObject msg, PASSTHRU_MSG * dest) {
+
+    auto headerTxt = msg["header"].toString();
+    auto combined = headerTxt + msg["data"].toString();
+    auto rawData = QByteArray::fromHex(combined.toUtf8());
+
+    // copy
+    dest->DataSize = rawData.length();
+    dest->ExtraDataIndex = msg["extraDataIndex"].toVariant().toLongLong();
+    dest->ProtocolID = msg["protocolId"].toVariant().toLongLong();
+    dest->Timestamp = msg["timeStamp"].toVariant().toLongLong();
+    dest->RxStatus = msg["rxFlag"].toVariant().toLongLong();
+    dest->TxFlags = msg["txFlag"].toVariant().toLongLong();
+
+
+    if (rawData.length() < 4 || rawData.length() > 4128 ) {
+        return;; // incomplete message, skip
+    }
+
+    memcpy(dest->Data, rawData.constData(), rawData.length());
+}
+
 long STDCALL PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout) {
 
     if (context == nullptr) {
         return ERR_DEVICE_NOT_CONNECTED;
     };
-    unsigned long preCallNumMsgs = *pNumMsgs;
+
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_READ_MSGS},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", QString::number(ChannelID)},
+        {"numMsgs", QString::number(*pNumMsgs)},
+        {"timeout", QString::number(Timeout)}
+    };
+
+    bool result = context->sendReceiveCseq(msg,WS_REQUEST_TIMEOUT + Timeout, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
+
+    auto ptResult = msg["passThruResult"].toInt();
 
     // wrap messages into json
 
-    QJsonArray msgs;
+    QJsonArray msgs = msg["msgs"].toArray();
 
-    for (int i = 0; i < preCallNumMsgs; i++) {
-        auto msg = pMsg[i];
+    *pNumMsgs = msgs.count();
 
-        auto header = QByteArray((char *)&(msg.Data[0]), 4);
-        auto data = QByteArray((char *)&(msg.Data[4]), msg.DataSize-4);
-        QJsonObject ptMsg {
-            {"header", QString(header.toHex())},
-            {"data", QString(data.toHex())}
-        };
-        msgs.push_back(ptMsg);
-
+    for (int i = 0; i < msgs.count(); i++) {
+        auto msg = msgs[i].toObject();
+        CopyJsonMsg(msg, &pMsg[i]);
     }
 
-    QJsonObject msg {
-        {"msgs", msgs},
-        {"timeout", (int)Timeout}
-    };
-
-    context->sendReceiveCseq(msg, Timeout * 2L, &msg);
-
-
-    return 0L;
+    return ptResult;
 }
 
 long STDCALL PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pNumMsgs, unsigned long Timeout) {
@@ -157,16 +202,32 @@ long STDCALL PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsi
     };
 
     unsigned long preCallNumMsgs = *pNumMsgs;
-    //auto res = LocalWriteMsgs(ChannelID, pMsg, pNumMsgs, Timeout);
+    // wrap messages into json
 
-    //logger.outfile << "PTWRTMSG: " << ChannelID << " NUM: " << *pNumMsgs << " TO: " << Timeout << std::endl;
+    QJsonArray msgs;
 
-    for (int x = 0; x < pMsg->DataSize; x++) {
-        //logger.outfile << pMsg->Data[x];
+    for (unsigned long i = 0; i < preCallNumMsgs; i++) {
+        msgs.push_back(PtMsgToJson(pMsg[i]));
     }
-    //logger.outfile << std::endl;
 
-    return 0L;
+
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_WRITE_MSGS},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", QString::number(ChannelID)},
+        {"msgs", msgs},
+        {"timeout", QString::number(Timeout)}
+    };
+
+    bool result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT + Timeout, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
+
+
+    return msg["passThruResult"].toInt();
 }
 
 long STDCALL PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMsg, unsigned long* pMsgID, unsigned long TimeInterval) {
@@ -175,14 +236,30 @@ long STDCALL PassThruStartPeriodicMsg(unsigned long ChannelID, PASSTHRU_MSG* pMs
         return ERR_DEVICE_NOT_CONNECTED;
     };
 
-    //auto res = LocalStartPeriodicMsg(ChannelID, pMsg, pMsgID, TimeInterval);
-
-    //logger.outfile << "PTWRTMSGPERIODIC: " << ChannelID << " PID: " << *pMsgID << " TI: " << TimeInterval << std::endl;
-
-    for (int x = 0; x < pMsg->DataSize; x++) {
-        //logger.outfile << pMsg->Data[x];
+    if (pMsg == nullptr) {
+        return ERR_NULL_PARAMETER;
     }
-    //logger.outfile << std::endl;
+
+
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_START_PERIODIC},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", QString::number(ChannelID)},
+        {"msg", PtMsgToJson(*pMsg)},
+        {"timeInterval", QString::number(TimeInterval)}
+    };
+
+    bool result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
+
+    *pMsgID = msg["msgId"].toInt();
+
+    return msg["passThruResult"].toInt();
+
 
     return 0L;
 }
@@ -193,9 +270,22 @@ long STDCALL PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long MsgI
         return ERR_DEVICE_NOT_CONNECTED;
     };
 
-    //auto res = LocalStopPeriodicMsg(ChannelID, MsgID);
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_STOP_PERIODIC},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", QString::number(ChannelID)},
+        {"msgId", QString::number(MsgID)}
+    };
 
-    //logger.outfile << "PTSTPPERIODIC: " << ChannelID << " PID: " << MsgID << std::endl;
+    bool result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
+
+    return msg["passThruResult"].toInt();
+
 
 
     return 0L;
@@ -208,13 +298,40 @@ long STDCALL PassThruStartMsgFilter(unsigned long ChannelID, unsigned long Filte
     if (context == nullptr) {
         return ERR_DEVICE_NOT_CONNECTED;
     };
+    if (FilterType == FLOW_CONTROL_FILTER && pFlowControlMsg == nullptr) {
+        return ERR_NULL_PARAMETER;
+    }
 
-    //auto res = LocalStartMsgFilter(ChannelID, FilterType, pMaskMsg, pPatternMsg, pFlowControlMsg, pFilterID);
+    if (pPatternMsg == nullptr || pMaskMsg == nullptr || pFilterID == nullptr) {
+        return ERR_NULL_PARAMETER;
+    }
 
-    //logger.outfile << "FILTER: " << ChannelID << " FID: " << *pFilterID << " TYPE: " << FilterType << std::endl;
+
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_START_MESSAGE_FILTER},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", QString::number(ChannelID)},
+        {"filterType", QString::number(FilterType)},
+        {"maskMsg", PtMsgToJson(*pMaskMsg)},
+        {"patternMsg", PtMsgToJson(*pPatternMsg)},
+    };
+
+    // flow control msg is nullable optional
+    if (pFlowControlMsg != nullptr) {
+        msg["flowControlMessage"] = PtMsgToJson(*pFlowControlMsg);
+    }
+
+    bool result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
+
+    *pFilterID = msg["channelId"].toInt();
 
 
-    return 0L;
+    return msg["passThruResult"].toInt();
 }
 
 long STDCALL PassThruStopMsgFilter(unsigned long ChannelID, unsigned long FilterID) {
@@ -223,12 +340,23 @@ long STDCALL PassThruStopMsgFilter(unsigned long ChannelID, unsigned long Filter
         return ERR_DEVICE_NOT_CONNECTED;
     };
 
-    //auto res = LocalStopMsgFilter(ChannelID, FilterID);
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_STOP_MESSAGE_FILTER},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"channelId", QString::number(ChannelID)},
+        {"filterId", QString::number(FilterID)},
 
-    //logger.outfile << "FILTER: " << ChannelID << " FID: " << FilterID << std::endl;
+    };
+
+    bool result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT * 2L, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
 
 
-    return 0L;
+    return msg["passThruResult"].toInt();
 }
 
 long STDCALL PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage) {
@@ -237,38 +365,72 @@ long STDCALL PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned long
         return ERR_DEVICE_NOT_CONNECTED;
     };
 
+    if (DeviceID != 1L) {
+        return ERR_INVALID_DEVICE_ID;
+    }
 
-    //auto res = LocalSetProgrammingVoltage(DeviceID, PinNumber, Voltage);
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_SET_PROG_VOLTAGE},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"pinNumber", QString::number(PinNumber)},
+        {"voltage", QString::number(Voltage)},
+    };
 
-    //logger.outfile << "PROGVOLTAGE" << std::endl;
+    bool result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT * 2L, &msg);
+
+    if (!result) {
+        lastError = "Could not send message to server";
+        return ERR_FAILED;
+    }
 
 
-    return 0L;
+    return msg["passThruResult"].toInt();
 }
 
 long STDCALL PassThruReadVersion(unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion, char* pApiVersion) {
 
+    auto ver = "0.01";
+    strncpy(pFirmwareVersion, ver, 5);
 
-    auto ver = "TODO: ENTER VER";
-    strncpy(pFirmwareVersion, ver, 80);
+    auto dllver = "0.01";
+    strncpy(pDllVersion, dllver, 5);
 
-    auto dllver = "TODO: ENTER DLLVER";
-    strncpy(pDllVersion, ver, 80);
-
-    auto apiver = "TODO: ENTER APIVER";
-    strncpy(pApiVersion, ver, 80);
+    auto apiver = "04.04";
+    strncpy(pApiVersion, apiver, 6);
 
     return 0L;
 }
 
 long STDCALL PassThruGetLastError(char* pErrorDescription) {
 
-    auto msg = "TODO: ENTER MSG";
+    if (context == nullptr) {
+        auto msg = "Context is null. (J2534 Wrapper not started?)";
 
-    strncpy(pErrorDescription, msg, 80);
+        strncpy(pErrorDescription, msg, 80);
 
+        return 0L;
+    }
+    strncpy(pErrorDescription, lastError.toStdString().c_str(), 80);
 
     return 0L;
+}
+
+long simpleIotcl(unsigned long ChannelID, unsigned long IoctlID) {
+    QJsonObject msg {
+        {"id", MESSAGE_ID_PT_IOCTL},
+        {"t", MESSAGE_TYPE_REQUEST},
+        {"handleId", QString::number(ChannelID)},
+        {"ioctlId", QString::number(IoctlID)},
+    };
+
+    auto result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
+
+    if (!result) {
+        return ERR_FAILED;
+    }
+
+    // result in msg
+    return msg["passThruResult"].toInt();
 }
 
 long STDCALL PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void* pInput, void* pOutput) {
@@ -277,102 +439,110 @@ long STDCALL PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void*
         return ERR_DEVICE_NOT_CONNECTED;
     };
 
-
-    //auto res = LocalIoctl(ChannelID, IoctlID, pInput, pOutput);
-
+    // message we send will vary according to IoctlID
 
     switch (IoctlID) {
-    case GET_CONFIG:								// pInput = SCONFIG_LIST, pOutput = NULL
+    case GET_CONFIG: {                              // pInput = SCONFIG_LIST, pOutput = NULL
+
+        // the config list will be filled with current configs
+        SCONFIG_LIST& configList = *(SCONFIG_LIST*)pInput;
+        if (configList.ConfigPtr == NULL) {
+            // this is non null
+            return ERR_NULL_PARAMETER;
+        }
+        QJsonArray jsonList;
+
+        for (int i = 0; i < configList.NumOfParams; i++) {
+            SCONFIG& config = configList.ConfigPtr[i];
+
+            auto param = QString::number(config.Parameter);
+            auto value = QString::number(config.Value);
+            QJsonObject pair {
+                {"first", param},
+                {"second", value}
+            };
+
+            jsonList.push_back(pair);
+
+        }
+
+        QJsonObject msg {
+            {"id", MESSAGE_ID_PT_IOCTL},
+            {"t", MESSAGE_TYPE_REQUEST},
+            {"handleId", QString::number(ChannelID)},
+            {"ioctlId", QString::number(IoctlID)},
+            {"configList", jsonList},
+        };
+
+        auto result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
+
+        if (!result) {
+            return ERR_FAILED;
+        }
+
+        // result in msg
+        return msg["passThruResult"].toInt();
+
+        // @TODO - fill with results
+
+        break;
+    }
     case SET_CONFIG:								// pInput = SCONFIG_LIST, pOutput = NULL
     {
-        { //pInput
-            SCONFIG_LIST& configList = *(SCONFIG_LIST*)pInput;
-            if (configList.ConfigPtr == NULL) {
-                //logger.outfile << "SET CONFIG NULL" << std::endl;
-
-            }
-            else {
-                for (int i = 0; i < configList.NumOfParams; i++) {
-                    SCONFIG& config = configList.ConfigPtr[i];
-
-                    switch (config.Parameter) {
-                    case DATA_RATE:					// 5-500000
-                        //logger.outfile << "SET CONFIG RATE " << config.Parameter << std::endl;
-
-                        break;
-
-                    case LOOPBACK:					// 0 (OFF), 1 (ON) [0]
-                        //logger.outfile << "SET CONFIG LOOPBACK " << config.Value << std::endl;
-                        break;
-
-                    case NODE_ADDRESS:				// J1850PWM: 0x00-0xFF
-                    case ISO15765_BS:				// ISO15765: 0x0-0xFF [0]
-                    case ISO15765_STMIN:			// ISO15765: 0x0-0xFF [0]
-                    case ISO15765_WFT_MAX:			// ISO15765: 0x0-0xFF [0]
-                        //logger.outfile << "SET CONFIG WFT MAX " << config.Value << std::endl;
-                        break;
-
-                    case BIT_SAMPLE_POINT:			// CAN: 0-100 (1% per bit) [80]
-                    case SYNC_JUMP_WIDTH:			// CAN: 0-100 (1% per bit) [15]
-                        //logger.outfile << "SET CONFIG JUMP WIDTH " << config.Value << std::endl;
-                        break;
-
-                    case NETWORK_LINE:				// J1850PWM: 0 (BUS_NORMAL), 1 (BUS_PLUS), 2 (BUS_MINUS) [0]
-                    case PARITY:					// ISO9141 or ISO14230: 0 (NO_PARITY), 1 (ODD_PARITY), 2 (EVEN_PARITY) [0]
-                    case DATA_BITS:					// ISO9141 or ISO14230: 0 (8 data bits), 1 (7 data bits) [0]
-                    case FIVE_BAUD_MOD:				// ISO9141 or ISO14230: 0 (ISO 9141-2/14230-4), 1 (Inv KB2), 2 (Inv Addr), 3 (ISO 9141) [0]
-                        //logger.outfile << "SET CONFIG FIVE BAUD MOD WIDTH " << config.Value << std::endl;
-                        break;
-
-                    case P1_MIN:					// ISO9141 or ISO14230: Not used by interface
-                    case P2_MIN:					// ISO9141 or ISO14230: Not used by interface
-                    case P2_MAX:					// ISO9141 or ISO14230: Not used by interface
-                    case P3_MAX:					// ISO9141 or ISO14230: Not used by interface
-                    case P4_MAX:					// ISO9141 or ISO14230: Not used by interface
-                        break;
-
-                    case P1_MAX:					// ISO9141 or ISO14230: 0x1-0xFFFF (.5 ms per bit) [40 (20ms)]
-                    case P3_MIN:					// ISO9141 or ISO14230: 0x0-0xFFFF (.5 ms per bit) [110 (55ms)]
-                    case P4_MIN:					// ISO9141 or ISO14230: 0x0-0xFFFF (.5 ms per bit) [10 (5ms)]
-                    case W0:						// ISO9141: 0x0-0xFFFF (1 ms per bit) [300]
-                    case W1:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [300]
-                    case W2:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [20]
-                    case W3:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [20]
-                    case W4:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [50]
-                    case W5:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [300]
-                    case TIDLE:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [300]
-                    case TINIL:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [25]
-                    case TWUP:						// ISO9141 or ISO14230: 0x0-0xFFFF (1 ms per bit) [50]
-                    case T1_MAX:					// SCI: 0x0-0xFFFF (1 ms per bit) [20]
-                    case T2_MAX:					// SCI: 0x0-0xFFFF (1 ms per bit) [100]
-                    case T3_MAX:					// SCI: 0x0-0xFFFF (1 ms per bit) [50]
-                    case T4_MAX:					// SCI: 0x0-0xFFFF (1 ms per bit) [20]
-                    case T5_MAX:					// SCI: 0x0-0xFFFF (1 ms per bit) [100]
-                    case ISO15765_BS_TX:			// ISO15765: 0x0-0xFF,0xFFFF [0xFFFF]
-                    case ISO15765_STMIN_TX:			// ISO15765: 0x0-0xFF,0xFFFF [0xFFFF]
-                        //logger.outfile << "SET CONFIG ST MIN " << config.Value << std::endl;
-
-                        break;
-
-                    default:
-                        break;
-                    }
-                }
-            }
+        //pInput
+        SCONFIG_LIST& configList = *(SCONFIG_LIST*)pInput;
+        if (configList.ConfigPtr == NULL) {
+            // this is non null
+            return ERR_NULL_PARAMETER;
         }
+        QJsonArray jsonList;
+
+        for (int i = 0; i < configList.NumOfParams; i++) {
+            SCONFIG& config = configList.ConfigPtr[i];
+
+            auto param = QString::number(config.Parameter);
+            auto value = QString::number(config.Value);
+            QJsonObject pair {
+                {"first", param},
+                {"second", value}
+            };
+
+            jsonList.push_back(pair);
+
+        }
+
+        QJsonObject msg {
+            {"id", MESSAGE_ID_PT_IOCTL},
+            {"t", MESSAGE_TYPE_REQUEST},
+            {"handleId", QString::number(ChannelID)},
+            {"ioctlId", QString::number(IoctlID)},
+            {"configList", jsonList},
+        };
+
+        auto result = context->sendReceiveCseq(msg, WS_REQUEST_TIMEOUT, &msg);
+
+        if (!result) {
+            return ERR_FAILED;
+        }
+
+        // result in msg
+        return msg["passThruResult"].toInt();
+
         break;
+
     }
 
     case FIVE_BAUD_INIT:							// pInput = SBYTE_ARRAY, pOutput = SBYTE_ARRAY
     {
-
+        return simpleIotcl(ChannelID, IoctlID);
         break;
     }
 
-    case FAST_INIT:									// pInput = PASSTHRU_MSG, pOutput = PASSTHRU_MSG
+    case FAST_INIT: {                               // pInput = PASSTHRU_MSG, pOutput = PASSTHRU_MSG
 
+        return simpleIotcl(ChannelID, IoctlID);
         break;
-
+    }
     case CLEAR_TX_BUFFER:							// pInput = NULL, pOutput = NULL
     case CLEAR_RX_BUFFER:							// pInput = NULL, pOutput = NULL
     case CLEAR_PERIODIC_MSGS:						// pInput = NULL, pOutput = NULL
@@ -380,30 +550,35 @@ long STDCALL PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, void*
     case CLEAR_FUNCT_MSG_LOOKUP_TABLE:				// pInput = NULL, pOutput = NULL
     case SW_CAN_HS:									// pInput = NULL, pOutput = NULL
     case SW_CAN_NS:									// pInput = NULL, pOutput = NULL
+    {
+        return simpleIotcl(ChannelID, IoctlID);
 
         break;
+    }
 
     case ADD_TO_FUNCT_MSG_LOOKUP_TABLE:				// pInput = SBYTE_ARRAY, pOutput = NULL
     case DELETE_FROM_FUNCT_MSG_LOOKUP_TABLE:		// pInput = SBYTE_ARRAY, pOutput = NULL
     case SET_POLL_RESPONSE:							// pInput = SBYTE_ARRAY, pOutput = NULL
     {
+        return simpleIotcl(ChannelID, IoctlID);
 
         break;
     }
 
     case READ_VBATT:								// pInput = NULL, pOutput = unsigned long
     case READ_PROG_VOLTAGE:							// pInput = NULL, pOutput = unsigned long
+        return simpleIotcl(ChannelID, IoctlID);
 
         break;
 
     case BECOME_MASTER:								// pInput = unsigned char, pOutput = NULL
-
+        return simpleIotcl(ChannelID, IoctlID);
         break;
 
     default:
         break;
     }
 
-    return 0L;
+    return simpleIotcl(ChannelID, IoctlID);
 }
 

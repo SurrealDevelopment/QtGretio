@@ -58,6 +58,12 @@ void GretioWebsocketClient::onConnected()
     connect(&m_webSocket, &QWebSocket::textMessageReceived,
             this, &GretioWebsocketClient::onMessageReceived);
 
+    connect(&pingTimer, &QTimer::timeout,
+            this, &GretioWebsocketClient::ping);
+
+    pingTimer.setInterval(5000);
+    pingTimer.start();
+
     emit connected();
 }
 //! [onConnected]
@@ -88,6 +94,17 @@ void GretioWebsocketClient::onMessageReceived(QString message)
 
     emit onJsonMessageReeived(jsonObj);
 
+}
+
+void GretioWebsocketClient::ping()
+{
+    // we need to send periodic messages so our connection doesnt timeout
+    // some j2534 clients will have long perioids of inactivity
+    // so this is required
+
+    if (m_webSocket.isValid()) {
+        m_webSocket.ping();
+    }
 }
 
 

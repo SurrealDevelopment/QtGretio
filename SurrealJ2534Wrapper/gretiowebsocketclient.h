@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include <QtWebSockets/QWebSocket>
+#include <QTimer>
 
 class GretioWebsocketClient : public QObject
 {
@@ -25,10 +26,14 @@ private Q_SLOTS:
     void onConnected();
     void onMessageReceived(QString message);
 
+    void ping();
+
 private:
     QWebSocket m_webSocket;
     QUrl m_url;
     bool m_debug;
+
+    QTimer pingTimer;
 
 };
 
