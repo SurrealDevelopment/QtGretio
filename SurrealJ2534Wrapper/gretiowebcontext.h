@@ -5,8 +5,12 @@
 #include "gretioauthhandler.h"
 #include "gretiowebsocketclient.h"
 #include "QNetworkAccessManager"
+#include "gretioservicefinder.h"
+#include "gretiomainwindow.h"
 
-
+#define NOT_CONNECTED 0
+#define CONNECTION_BEGIN 1
+#define CONNECTED 2
 
 class GretioWebContext : public QObject
 {
@@ -19,13 +23,21 @@ public:
 
     bool sendReceiveCseq(QJsonObject toSend, long timeout, QJsonObject * message);
 
-    void waitForOpenOrTimeout();
+    bool waitForOpenOrTimeout();
 
 private:
+    GretioMainWindow window;
+    GretioServiceFinder gsf;
+
     GretioWebsocketClient wsc;
     GretioAuthHandler wsah;
 
     QNetworkAccessManager netAccessManager;
+
+    int connectionStatus = NOT_CONNECTED;
+
+signals:
+    void onConnectionStatusChange(int status);
 
 
 protected:
@@ -33,6 +45,7 @@ protected:
 
 private slots:
     void closed();
+    void onFoundService(QZeroConfService zcs);
 
 
 };

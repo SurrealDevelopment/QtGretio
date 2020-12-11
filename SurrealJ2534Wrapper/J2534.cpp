@@ -26,17 +26,23 @@ long STDCALL PassThruOpen(void* pName, unsigned long* pDeviceID) {
         *pDeviceID = -1;
         return ERR_DEVICE_IN_USE;
     }
-    // ensure app exists=
+    // ensure app exists
     guardApp();
 
     context = new GretioWebContext(app);
 
     // prevent caller from doing stuff too early
-    context->waitForOpenOrTimeout();
+    bool open = context->waitForOpenOrTimeout();
 
+    // look at result
+    if (!open) {
+        PassThruClose(1L);
+        return ERR_DEVICE_NOT_CONNECTED;
+    }
 
-    // we always just use 0L. Never anything else.
+    // we always just use 1L. Never anything else.
     *pDeviceID = 1L;
+
 
     return STATUS_NOERROR;
 }

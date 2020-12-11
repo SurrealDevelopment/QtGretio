@@ -14,5 +14,6 @@ IsolateQApp::~IsolateQApp()
 
 void IsolateQApp::run()
 {
+    app.setApplicationName("Gretio J2534");
     this->result = app.exec();
 }

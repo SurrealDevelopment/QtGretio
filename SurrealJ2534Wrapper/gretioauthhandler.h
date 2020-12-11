@@ -16,6 +16,8 @@ class GretioAuthHandler : public QObject
 public:
     explicit GretioAuthHandler(GretioWebsocketClient * wsc, QObject *parent = nullptr);
 
+    bool isAuth();
+
 
 signals:
     void onAuthSuccess();

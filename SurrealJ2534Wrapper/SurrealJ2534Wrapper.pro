@@ -1,8 +1,11 @@
 QT -= gui
-QT += websockets widgets
+QT += websockets widgets network
 
 TEMPLATE = lib
 DEFINES += SURREALJ2534WRAPPER_LIBRARY
+DEFINES= QZEROCONF_STATIC
+
+
 
 CONFIG += c++11 shared
 
@@ -20,6 +23,8 @@ SOURCES += \
     J2534.cpp \
     dllmain.cpp \
     gretioauthhandler.cpp \
+    gretiomainwindow.cpp \
+    gretioservicefinder.cpp \
     gretiowebcontext.cpp \
     gretiowebsocketclient.cpp \
     isolateqapp.cpp \
@@ -30,6 +35,8 @@ HEADERS += \
     J2534.h \
     SurrealJ2534Wrapper_global.h \
     gretioauthhandler.h \
+    gretiomainwindow.h \
+    gretioservicefinder.h \
     gretiowebcontext.h \
     gretiowebsocketclient.h \
     isolateqapp.h \
@@ -41,3 +48,4 @@ unix {
 }
 !isEmpty(target.path): INSTALLS += target
 
+include($$PWD/../qtzeroconf/qtzeroconf.pri)

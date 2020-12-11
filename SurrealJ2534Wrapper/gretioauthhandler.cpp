@@ -39,3 +39,8 @@ void GretioAuthHandler::onConnected()
 
 }
 
+
+bool GretioAuthHandler::isAuth()
+{
+    return this->authComplete;
+}

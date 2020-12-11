@@ -1,4 +1,3 @@
-#include "mainwindow.h"
 
 #include <QApplication>
 #include <QLibrary>
@@ -27,40 +26,18 @@ void testRemote() {
     QSettings settings("HKEY_LOCAL_MACHINE\\SOFTWARE\\PassThruSupport.04.04\\Surreal Dev",QSettings::NativeFormat);
     auto lib = settings.value("FunctionLibrary").toString();
 
-    qDebug() << "Loading lib at " << lib;
-
-    QLibrary myLib(lib);
+    qDebug() << " lib at " << lib;
 
 
-
-    if (!myLib.load()) {
-        qErrnoWarning("Surreal J2534 DLL Failed to Load");
-    }
-
-    PTOPEN open = (PTOPEN) myLib.resolve("PassThruOpen");
-    PTCONNECT connect = (PTCONNECT) myLib.resolve("PassThruConnect");
-    PTWRITEMSGS write = (PTWRITEMSGS) myLib.resolve("PassThruWriteMsgs");
-    PTREADMSGS readFun = (PTREADMSGS) myLib.resolve("PassThruReadMsgs");
-    PTIOCTL iotclFun = (PTIOCTL) myLib.resolve("PassThruIoctl");
-    PTDISCONNECT discconect = (PTDISCONNECT) myLib.resolve("PassThruDisconnect");
-
-    PTSTARTMSGFILTER filter = (PTSTARTMSGFILTER) myLib.resolve("PassThruStartMsgFilter");
-
-
-    if (open == nullptr || connect == nullptr || write == nullptr || readFun == nullptr || iotclFun == nullptr || filter == nullptr) {
-        qErrnoWarning("Surreal J2534 DLL Failed to Resolve J2534 API");
-
-        return;
-    }
 
     unsigned long test = 0;
-    open((void *)"Tester", &test);
+    PassThruOpen((void *)"Tester", &test);
     // The DeviceID should be 1
 
 
     qDebug() << "Surreal J2534 DLL Resolved PTOPEN DEVID" << test;
 
-    connect(test,5,0L,500000L,&test);
+    PassThruConnect(test,5,0L,500000L,&test);
 
     qDebug() << "Surreal J2534 DLL Resolved PTCONNECT CAN ID" << test;
 
@@ -74,7 +51,7 @@ void testRemote() {
         .ConfigPtr = configs
     };
 
-    iotclFun(test, SET_CONFIG, &list, nullptr);
+    PassThruIoctl(test, SET_CONFIG, &list, nullptr);
 
     // make a msg
     PASSTHRU_MSG msg;
@@ -101,13 +78,13 @@ void testRemote() {
         .Data = {0x00, 0x00, 0x07, 0xff},
     };
 
-    filter(test, PASS_FILTER, &mask, &pattern, nullptr, &filterId);
+    PassThruStartMsgFilter(test, PASS_FILTER, &mask, &pattern, nullptr, &filterId);
 
-    write(test, &msg, &wrote, 0L);
+    PassThruWriteMsgs(test, &msg, &wrote, 0L);
 
     unsigned long read = 1;
 
-    readFun(test, &msg, &read, 0L);
+    PassThruReadMsgs(test, &msg, &read, 0L);
 
     qDebug() << "Read : " << read << " messages";
 
@@ -121,10 +98,7 @@ void testRemote() {
     qDebug() << "RX" << QByteArray((char *)msg.Data, msg.DataSize).toHex() << " DS: " << msg.DataSize << " EDI: " << msg.ExtraDataIndex;
     qDebug() << "TxF: " << msg.TxFlags << " RxF: " << msg.RxStatus << " Timestamp: " << msg.Timestamp;
 
-    discconect(test);
-
-
-
+    PassThruDisconnect(test);
 
 
 }
@@ -132,15 +106,12 @@ void testRemote() {
 
 int main(int argc, char *argv[])
 {
-    QApplication a(argc, argv);
-
-    MainWindow w;
-    w.show();
 
    // testJ2534();
     testRemote();
 
-    return a.exec();
+    return 0;
+
 }
 
 

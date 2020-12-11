@@ -44,6 +44,12 @@ void GretioWebsocketClient::connectNow()
     m_webSocket.open(QUrl(this->m_url));
 }
 
+void GretioWebsocketClient::connectNow(QUrl &url)
+{
+    this->m_url = url;
+    return this->connectNow();
+}
+
 void GretioWebsocketClient::close()
 {
     m_webSocket.close();
