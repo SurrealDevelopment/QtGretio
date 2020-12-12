@@ -4,6 +4,10 @@
 #include <QMainWindow>
 #include <QTableWidget>
 #include "qzeroconf.h"
+#include <QLineEdit>
+#include <QUrl>
+#include <QStackedWidget>
+#include <QLabel>
 
 
 /**
@@ -19,17 +23,35 @@ public:
 
     void showDiscovery();
 
+    void showProgressIndicator();
+
+    void showAuthWidget(QString code);
+
     void addService(QZeroConfService zcs);
 
 signals:
-
-    void serviceSelected(QZeroConfService zcs);
+    void serviceSelected(QUrl url);
 
 private:
     QTableWidget table;
+    QList <QZeroConfService> services;
+    QLineEdit connectEdit;
+    QStackedWidget stack;
+    QLabel authLabel;
+
+    void makeDiscoveryWidget();
+    void makeLoadingWidget();
+    void makeAuthWidget();
+
+    QWidget * discoveryWidget;
+    QWidget * loadingWidget;
+    QWidget * authWidget;
+
+    void checkUrl();
 
 private slots:
     void rowSelected(int x, int y);
+    void rowDoubleClicked(int x, int y);
 
 };
 

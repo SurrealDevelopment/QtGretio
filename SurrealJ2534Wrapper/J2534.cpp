@@ -32,7 +32,7 @@ long STDCALL PassThruOpen(void* pName, unsigned long* pDeviceID) {
     context = new GretioWebContext(app);
 
     // prevent caller from doing stuff too early
-    bool open = context->waitForOpenOrTimeout();
+    bool open = context->waitForOpen();
 
     // look at result
     if (!open) {

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include "gretiowebsocketclient.h"
+#include <QSslKey>
 
 /**
  * @brief The GretioAuthHandler class is used as a pipeline member (connected).
@@ -21,8 +22,8 @@ public:
 
 signals:
     void onAuthSuccess();
-    void onAuthFail();
-    void onAuthPending();
+    void onAuthFail(QString reason);
+    void onAuthPending(QString code);
     void onMessageToNext(QJsonObject json);
 
 public slots:
@@ -30,9 +31,14 @@ public slots:
     void onConnected();
 
 private:
-    QString ourToken = "PTLPAPI";
     bool authComplete = false;
     GretioWebsocketClient * wsc;
+
+    QString token;
+    QSslKey pubkey;
+
+    QString getTokenForKey(QSslKey key);
+    void addToken(QSslKey key, QString token);
 
 
 };

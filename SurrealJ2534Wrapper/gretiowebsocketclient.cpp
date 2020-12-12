@@ -13,6 +13,12 @@ GretioWebsocketClient::GretioWebsocketClient(const QUrl &url, bool debug, QObjec
 
     connect(&m_webSocket, &QWebSocket::connected, this, &GretioWebsocketClient::onConnected);
     connect(&m_webSocket, &QWebSocket::disconnected, this, &GretioWebsocketClient::closed);
+    connect(&m_webSocket, QOverload<const QList<QSslError>&>::of(&QWebSocket::sslErrors),
+                this, &GretioWebsocketClient::onSslErrors);
+
+    connect(&m_webSocket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error), [=](QAbstractSocket::SocketError error) {
+        qDebug() << " Socket Error " << error;
+    });
 
 }
 
@@ -26,7 +32,7 @@ bool GretioWebsocketClient::writeMessage(QJsonObject json)
     if (m_debug) {
         // Utf 8 encoded
         msg = doc.toJson(QJsonDocument::Indented).toStdString().data();
-        qDebug() << "Tx:" << msg;
+        //qDebug() << "Tx:" << msg;
     }
     else {
         msg = doc.toJson(QJsonDocument::Compact).toStdString().data();
@@ -40,7 +46,7 @@ bool GretioWebsocketClient::writeMessage(QJsonObject json)
 void GretioWebsocketClient::connectNow()
 {
     if (m_debug)
-            qDebug() << "WebSocket server:" << m_url;
+            qDebug() << "WebSocket client:" << m_url;
     m_webSocket.open(QUrl(this->m_url));
 }
 
@@ -52,15 +58,27 @@ void GretioWebsocketClient::connectNow(QUrl &url)
 
 void GretioWebsocketClient::close()
 {
+    qDebug() << "WebSocket closed";
+
+    disconnect(&m_webSocket, &QWebSocket::textMessageReceived,
+            this, &GretioWebsocketClient::onMessageReceived);
+
+    disconnect(&pingTimer, &QTimer::timeout,
+            this, &GretioWebsocketClient::ping);
+
     m_webSocket.close();
 }
-//! [constructor]
+
+QSslCertificate GretioWebsocketClient::peerCert()
+{
+    return m_webSocket.sslConfiguration().peerCertificate();
+}
 
 //! [onConnected]
 void GretioWebsocketClient::onConnected()
 {
-    if (m_debug)
-        qDebug() << "WebSocket connected";
+    qDebug() << "WebSocket connected";
+
     connect(&m_webSocket, &QWebSocket::textMessageReceived,
             this, &GretioWebsocketClient::onMessageReceived);
 
@@ -70,6 +88,9 @@ void GretioWebsocketClient::onConnected()
     pingTimer.setInterval(5000);
     pingTimer.start();
 
+
+    m_webSocket.sslConfiguration().peerCertificate();
+
     emit connected();
 }
 //! [onConnected]
@@ -78,8 +99,8 @@ void GretioWebsocketClient::onConnected()
 //! [onTextMessageReceived]
 void GretioWebsocketClient::onMessageReceived(QString message)
 {
-    if (m_debug)
-        qDebug() << "Message received:" << message;
+    // if (m_debug)
+    //     qDebug() << "Message received:" << message;
     QJsonParseError e;
     auto doc = QJsonDocument::fromJson(message.toUtf8(), &e);
 
@@ -113,5 +134,32 @@ void GretioWebsocketClient::ping()
     }
 }
 
+void GretioWebsocketClient::onSslErrors(const QList<QSslError> &errors)
+{
+    /*
+     * There is no way to really to authenicate the certs so all self signed certs need to be
+     * accepted. There might be a better way of doing this, but this is secure enough for now.
+     */
 
-//! [onTextMessageReceived]
+    bool okError = true;
+
+    foreach (QSslError e, errors)
+   {
+       if (    e.error() == QSslError::HostNameMismatch ||
+               e.error() == QSslError::UnableToGetLocalIssuerCertificate ||
+               e.error() == QSslError::UnableToVerifyFirstCertificate) {
+
+       } else {
+           qDebug() << "ssl error: " << e;
+           okError = false;
+       }
+   }
+
+    if (okError) {
+        m_webSocket.ignoreSslErrors();
+    }
+}
+
+
+
+

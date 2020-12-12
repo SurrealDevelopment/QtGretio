@@ -13,15 +13,44 @@ GretioWebContext::GretioWebContext(QObject *parent)
     connect(&gsf, &GretioServiceFinder::onFoundService, this, &GretioWebContext::onFoundService);
 
     connect(&wsc, &GretioWebsocketClient::connected, &wsah, &GretioAuthHandler::onConnected);
+    connect(&wsc, &GretioWebsocketClient::connected, this, [=]() {
+        this->connectionStatus = WAIT_AUTH;
+        emit onConnectionStatusChange(WAIT_AUTH);
+    });
 
     connect(&wsc, &GretioWebsocketClient::closed, this, &GretioWebContext::closed);
     connect(&wsc, &GretioWebsocketClient::onJsonMessageReeived, &wsah, &GretioAuthHandler::inputMessage);
+
+    connect(&wsah, &GretioAuthHandler::onAuthFail, this, [=]() {
+        wsc.close();
+    });
+
+    connect(&wsah, &GretioAuthHandler::onAuthPending, this, [=](QString code) {
+        window.showAuthWidget(code);
+    });
+
+    connect(&wsah, &GretioAuthHandler::onAuthSuccess, this, [=]() {
+        this->connectionStatus = CONNECTED;
+        emit onConnectionStatusChange(CONNECTED);
+        window.hide();
+
+    });
 
 
     // begin discovery immediately
     gsf.findServices();
 
     window.showDiscovery();
+
+    connect(&window, &GretioMainWindow::serviceSelected, this, [=](QUrl url) {
+        //window.showProgressIndicator();
+        wsc.connectNow(url);
+        this->connectionStatus = CONNECTING;
+        emit onConnectionStatusChange(CONNECTING);
+
+
+    });
+
 
 }
 
@@ -39,9 +68,6 @@ bool GretioWebContext::sendReceiveCseq(QJsonObject toSend, long timeout, QJsonOb
     QTimer timer;
     QEventLoop loop;
     bool result = false;
-
-
-    auto lambda =
 
 
     connect(&wsah, &GretioAuthHandler::onMessageToNext, &loop, [&loop, &result, cseq, &message]( QJsonObject json) {
@@ -78,40 +104,28 @@ bool GretioWebContext::sendReceiveCseq(QJsonObject toSend, long timeout, QJsonOb
 
 }
 
-bool GretioWebContext::waitForOpenOrTimeout()
+bool GretioWebContext::waitForOpen()
 {
     QTimer timer;
     QEventLoop loop;
 
-    if (this->connectionStatus == 0) {
-        // then wait for it to change
-        connect(this, &GretioWebContext::onConnectionStatusChange, &loop, &QEventLoop::quit);
-
-        // wait forever here
-        loop.exec();
-
-        disconnect(&loop);
-    }
-
-    // wait for a connection or timeout
-    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-
+    // wait forever for auth to finish or some failure
+    connect(&wsc, &GretioWebsocketClient::closed, &loop, &QEventLoop::quit);
     connect(&wsah, &GretioAuthHandler::onAuthSuccess, &loop, &QEventLoop::quit);
-
-    timer.start(5000L);
+    connect(&wsah, &GretioAuthHandler::onAuthFail, &loop, &QEventLoop::quit);
 
     loop.exec();
-
     disconnect(&loop);
 
-    return wsah.isAuth();
-
+    return connectionStatus == CONNECTED;
 
 }
 
 void GretioWebContext::closed()
 {
     qDebug() << "WS Closed";
+    this->connectionStatus = NOT_CONNECTED;
+    emit onConnectionStatusChange(NOT_CONNECTED);
 }
 
 void GretioWebContext::onFoundService(QZeroConfService zcs)

@@ -9,8 +9,9 @@
 #include "gretiomainwindow.h"
 
 #define NOT_CONNECTED 0
-#define CONNECTION_BEGIN 1
+#define WAIT_AUTH 1
 #define CONNECTED 2
+#define CONNECTING 3
 
 class GretioWebContext : public QObject
 {
@@ -23,7 +24,7 @@ public:
 
     bool sendReceiveCseq(QJsonObject toSend, long timeout, QJsonObject * message);
 
-    bool waitForOpenOrTimeout();
+    bool waitForOpen();
 
 private:
     GretioMainWindow window;

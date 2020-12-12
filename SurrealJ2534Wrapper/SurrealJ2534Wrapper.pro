@@ -49,3 +49,5 @@ unix {
 !isEmpty(target.path): INSTALLS += target
 
 include($$PWD/../qtzeroconf/qtzeroconf.pri)
+
+DISTFILES +=
