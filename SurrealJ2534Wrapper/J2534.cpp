@@ -29,7 +29,7 @@ long STDCALL PassThruOpen(void* pName, unsigned long* pDeviceID) {
     // ensure app exists
     guardApp();
 
-    context = new GretioWebContext(app);
+    context = new GretioWebContext(&(app->app));
 
     // prevent caller from doing stuff too early
     bool open = context->waitForOpen();

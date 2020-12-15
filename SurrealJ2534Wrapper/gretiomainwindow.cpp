@@ -10,10 +10,17 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QGroupBox>
+#include <QMessageBox>
 
 
 
-GretioMainWindow::GretioMainWindow(QWidget *parent) : QMainWindow(parent)
+GretioMainWindow::GretioMainWindow(QWidget *parent) : QMainWindow(parent),
+    table(this),
+    connectEdit(this),
+    stack(this),
+    authLabel(this)
+
+
 {
     connect(&table, &QTableWidget::cellClicked, this, &GretioMainWindow::rowSelected);
     connect(&table, &QTableWidget::cellDoubleClicked, this, &GretioMainWindow::rowDoubleClicked);
@@ -73,6 +80,17 @@ void GretioMainWindow::addService(QZeroConfService zcs)
 
 }
 
+void GretioMainWindow::showError(QString error)
+{
+    QMessageBox box(this);
+    box.setText("Error");
+    box.setInformativeText(error);
+    box.setStandardButtons(QMessageBox::Ok);
+    box.setDefaultButton(QMessageBox::Ok);
+    box.exec();
+
+}
+
 void GretioMainWindow::makeDiscoveryWidget()
 {
     QVBoxLayout *mainLayout = new QVBoxLayout;
@@ -82,7 +100,7 @@ void GretioMainWindow::makeDiscoveryWidget()
     QFormLayout *formLayout = new QFormLayout;
 
     // connect button
-    QPushButton *button = new QPushButton(tr("Connect"));
+    QPushButton *button = new QPushButton(tr("Connect"), this);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
     connect(button, &QPushButton::clicked, this, [=]() {

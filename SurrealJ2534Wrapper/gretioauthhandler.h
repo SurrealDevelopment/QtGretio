@@ -21,6 +21,7 @@ public:
 
 
 signals:
+
     void onAuthSuccess();
     void onAuthFail(QString reason);
     void onAuthPending(QString code);

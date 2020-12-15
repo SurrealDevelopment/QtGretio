@@ -29,6 +29,8 @@ public:
 
     void addService(QZeroConfService zcs);
 
+    void showError(QString error);
+
 signals:
     void serviceSelected(QUrl url);
 

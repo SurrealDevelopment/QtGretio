@@ -21,8 +21,9 @@ GretioWebContext::GretioWebContext(QObject *parent)
     connect(&wsc, &GretioWebsocketClient::closed, this, &GretioWebContext::closed);
     connect(&wsc, &GretioWebsocketClient::onJsonMessageReeived, &wsah, &GretioAuthHandler::inputMessage);
 
-    connect(&wsah, &GretioAuthHandler::onAuthFail, this, [=]() {
+    connect(&wsah, &GretioAuthHandler::onAuthFail, this, [=](QString reason) {
         wsc.close();
+        window.showError(reason);
     });
 
     connect(&wsah, &GretioAuthHandler::onAuthPending, this, [=](QString code) {
@@ -57,6 +58,7 @@ GretioWebContext::GretioWebContext(QObject *parent)
 GretioWebContext::~GretioWebContext()
 {
     this->wsc.close();
+    gsf.stopFindingServices();
 }
 
 bool GretioWebContext::sendReceiveCseq(QJsonObject toSend, long timeout, QJsonObject * message)
@@ -110,9 +112,8 @@ bool GretioWebContext::waitForOpen()
     QEventLoop loop;
 
     // wait forever for auth to finish or some failure
-    connect(&wsc, &GretioWebsocketClient::closed, &loop, &QEventLoop::quit);
     connect(&wsah, &GretioAuthHandler::onAuthSuccess, &loop, &QEventLoop::quit);
-    connect(&wsah, &GretioAuthHandler::onAuthFail, &loop, &QEventLoop::quit);
+    connect(&window, &GretioMainWindow::close, &loop, &QEventLoop::quit);
 
     loop.exec();
     disconnect(&loop);
@@ -126,6 +127,7 @@ void GretioWebContext::closed()
     qDebug() << "WS Closed";
     this->connectionStatus = NOT_CONNECTED;
     emit onConnectionStatusChange(NOT_CONNECTED);
+    window.showDiscovery();
 }
 
 void GretioWebContext::onFoundService(QZeroConfService zcs)

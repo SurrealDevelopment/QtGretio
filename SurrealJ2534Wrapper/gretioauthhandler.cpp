@@ -37,15 +37,34 @@ void GretioAuthHandler::inputMessage(QJsonObject json)
     else if (json["t"].toInt() == 2 && json["id"].toInt() == 80
             && json["authResult"].toBool() == true) {
         qDebug("Auth  was good");
-        this->authComplete = true;
 
-        emit onAuthSuccess();
+        // request to begin pass thru session
+        QJsonObject object
+        {
+            {"t", 1},
+            {"id", 9000},
+        };
+
+        wsc->writeMessage(object);
     } else if(json["t"].toInt() == 2 && json["id"].toInt() == 80
               && json["authResult"].toBool() == false) {
         qDebug("Auth  was bad");
         this->authComplete = false;
 
         emit onAuthFail("Bad Auth");
+    }  else if(json["t"].toInt() == 2 && json["id"].toInt() == 9000
+               && json["result"].toBool() == false) {
+         qDebug("Failed to begin passthru session");
+         this->authComplete = false;
+
+         emit onAuthFail("Failed to begin passthru session. Insufficient permissions or PT API is not enabled.");
+     } else if(json["t"].toInt() == 2 && json["id"].toInt() == 9000
+            && json["result"].toBool() == true) {
+        qDebug("Began PT Session");
+
+        this->authComplete = true;
+        emit onAuthSuccess();
+
     }
 
 
